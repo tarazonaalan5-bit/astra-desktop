@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
 const defaultMessages = [
-  { user: 'ASTRA', text: 'Hola. Conectado al backend.', time: 'ahora' },
-  { user: 'ASTRA', text: 'Puedes abrir una URL o chatear.', time: 'ahora' },
+  { user: 'ASTRA', text: 'Hola, soy tu asistente personal. Todo listo para operar.', time: 'ahora' },
+  { user: 'ASTRA', text: 'Puedes hablar en cualquier sala, abrir una URL o consultar tu dashboard.', time: 'ahora' },
 ];
 
 const inputStyle = {
@@ -16,16 +16,17 @@ const inputStyle = {
 };
 
 const buttonStyle = {
-  background: '#8b5cf6',
+  background: 'linear-gradient(135deg, #8b5cf6, #4f46e5)',
   color: '#fff',
   border: 'none',
   borderRadius: 10,
-  padding: '10px 14px',
+  padding: '11px 16px',
   cursor: 'pointer',
   fontWeight: 700,
 };
 
 export default function App() {
+  const [loggedIn, setLoggedIn] = useState(false);
   const [username, setUsername] = useState('Usuario');
   const [room, setRoom] = useState('general');
   const [connected, setConnected] = useState(false);
@@ -33,34 +34,31 @@ export default function App() {
   const [input, setInput] = useState('');
   const [browserUrl, setBrowserUrl] = useState('https://www.google.com');
   const [wsUrl, setWsUrl] = useState('ws://localhost:8000/ws/general');
+  const [aiPrompt, setAiPrompt] = useState('Resumen del día');
+  const [showWelcome, setShowWelcome] = useState(true);
 
   useEffect(() => {
     const socket = new WebSocket(wsUrl);
 
-    socket.onopen = () => {
-      setConnected(true);
-    };
-
-    socket.onclose = () => {
-      setConnected(false);
-    };
-
-    socket.onerror = () => {
-      setConnected(false);
-    };
+    socket.onopen = () => setConnected(true);
+    socket.onclose = () => setConnected(false);
+    socket.onerror = () => setConnected(false);
 
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data?.type === 'message') {
-          setMessages((prev) => [...prev, {
-            user: data.username || 'ASTRA',
-            text: data.content || '',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          }]);
+          setMessages((prev) => [
+            ...prev,
+            {
+              user: data.username || 'ASTRA',
+              text: data.content || '',
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            },
+          ]);
         }
       } catch (err) {
-        console.error('WS message parse error', err);
+        console.error('WS parse error', err);
       }
     };
 
@@ -72,18 +70,35 @@ export default function App() {
     [connected]
   );
 
+  const doLogin = () => {
+    if (!username.trim()) return;
+    setLoggedIn(true);
+    setShowWelcome(false);
+  };
+
   const sendMessage = () => {
-    if (!input.trim()) return;
+    if (!input.trim() || !loggedIn) return;
 
     const socket = new WebSocket(wsUrl);
     socket.onopen = () => {
-      socket.send(JSON.stringify({
-        username,
-        content: input.trim(),
-      }));
+      socket.send(JSON.stringify({ username, content: input.trim() }));
       setInput('');
       socket.close();
     };
+  };
+
+  const sendAiTask = () => {
+    if (!aiPrompt.trim()) return;
+    setMessages((prev) => [
+      ...prev,
+      { user: username || 'Tú', text: aiPrompt.trim(), time: 'ahora' },
+      {
+        user: 'ASTRA',
+        text: `He recibido tu pedido: “${aiPrompt.trim()}”. Esto puede ejecutarse desde el backend si conectas la IA real.`,
+        time: 'ahora',
+      },
+    ]);
+    setAiPrompt('');
   };
 
   const openBrowser = () => {
@@ -92,6 +107,27 @@ export default function App() {
     const finalUrl = /^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`;
     setBrowserUrl(finalUrl);
   };
+
+  if (!loggedIn) {
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="login-brand">ASTRA</div>
+          <div className="login-subtitle">Personal AI Desktop</div>
+
+          <label className="field-label">Nombre de usuario</label>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            style={inputStyle}
+            placeholder="Escribe tu nombre"
+          />
+
+          <button className="primary-btn" onClick={doLogin}>Entrar al escritorio</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -105,7 +141,7 @@ export default function App() {
         </div>
 
         <div className="panel-block">
-          <label className="field-label">Tu nombre</label>
+          <label className="field-label">Usuario</label>
           <input value={username} onChange={(e) => setUsername(e.target.value)} style={inputStyle} />
         </div>
 
@@ -114,15 +150,16 @@ export default function App() {
           <select
             value={room}
             onChange={(e) => {
-              const roomValue = e.target.value;
-              setRoom(roomValue);
-              setWsUrl(`ws://localhost:8000/ws/${roomValue}`);
+              const nextRoom = e.target.value;
+              setRoom(nextRoom);
+              setWsUrl(`ws://localhost:8000/ws/${nextRoom}`);
             }}
             style={inputStyle}
           >
             <option value="general">General</option>
             <option value="dev">Dev</option>
             <option value="family">Family</option>
+            <option value="assistant">Assistant</option>
           </select>
         </div>
 
@@ -132,20 +169,38 @@ export default function App() {
         </div>
 
         <button className="soft-btn" onClick={openBrowser}>Abrir navegador</button>
+
+        <div className="mini-panel">
+          <div className="mini-title">IA rápida</div>
+          <textarea
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            rows={4}
+            placeholder="Escribe una tarea para la IA..."
+            className="mini-textarea"
+          />
+          <button className="primary-btn small" onClick={sendAiTask}>Enviar</button>
+        </div>
       </aside>
 
       <main className="main-panel">
         <header className="topbar">
           <div>
             <div className="topbar-title">ASTRA Desktop</div>
-            <div className="topbar-subtitle">AI assistant shell</div>
+            <div className="topbar-subtitle">Asistente personal</div>
           </div>
           <div className="topbar-status">{statusText}</div>
         </header>
 
+        {showWelcome && (
+          <div className="welcome-banner">
+            Bienvenido, <strong>{username}</strong>. Tu escritorio está listo para operar.
+          </div>
+        )}
+
         <section className="workspace">
           <div className="chat-panel">
-            <div className="chat-header">Mensajes</div>
+            <div className="chat-header">Chat en tiempo real</div>
             <div className="messages-box">
               {messages.map((msg, index) => (
                 <div key={`${msg.user}-${index}`} className="message-card">
